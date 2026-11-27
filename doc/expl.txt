@@ -1,0 +1,191 @@
+*expl.txt*  Explain the selected code with Claude, in a popup
+
+                                                            *expl* *expl.nvim*
+expl explains the code you select. The explanation appears in a popup
+next to the selection. Read it, ask a follow-up if you like, press `q` and
+carry on.
+
+It runs your installed Claude Code CLI, so it uses your existing Claude
+subscription. No API key is needed.
+
+==============================================================================
+CONTENTS                                                       *expl-contents*
+
+  1. Requirements ............................ |expl-requirements|
+  2. Usage ................................... |expl-usage|
+  3. Popup keys .............................. |expl-keys|
+  4. Commands ................................ |expl-commands|
+  5. Configuration ........................... |expl-config|
+  6. Highlights .............................. |expl-highlights|
+  7. Lua API ................................. |expl-api|
+  8. How it works ............................ |expl-how|
+
+==============================================================================
+1. REQUIREMENTS                                            *expl-requirements*
+
+- Neovim 0.10 or newer.
+- The `claude` CLI on your `PATH`, signed in to your Claude account
+  (`claude auth login`).
+- Optional: treesitter parsers for `markdown`, `markdown_inline` and the
+  languages you read, for highlighting.
+- Optional: render-markdown.nvim, for extra Markdown styling.
+
+Run `:checkhealth expl` to check all of these.
+
+==============================================================================
+2. USAGE                                                          *expl-usage*
+
+1. Select code in visual mode (|v|, |V| or |CTRL-V|).
+2. Press your mapping (for example `<leader>ce`), or run |:Expl|.
+3. The popup opens next to the selection, and the answer appears as Claude
+   writes it. A spinner in the title shows it's still working.
+
+The popup goes to the right of the selection when there's room, and
+otherwise below or above it. It grows to fit the answer, up to `max_height`.
+
+Example mapping with lazy.nvim: >lua
+    keys = {
+      { "<leader>ce", function() require("expl").explain() end,
+        mode = "x", desc = "Explain selection (expl)" },
+    },
+<
+==============================================================================
+3. POPUP KEYS                                                      *expl-keys*
+
+The popup has focus, so you can scroll it as usual. Extra keys:
+
+  `f`        Ask a follow-up question. Claude remembers the code and what it
+           already said.
+  `r`        Refresh: ignore the cached answer and ask Claude again.
+  `q`        Close the popup.
+  `<Esc>`    Close the popup.
+
+Moving to another window also closes it. Closing stops any answer that's
+still coming in.
+
+==============================================================================
+4. COMMANDS                                                    *expl-commands*
+
+                                                                       *:Expl*
+:Expl                   Explain the last visual selection (uses the |'<| and
+                        |'>| marks).
+
+                                                             *:ExplClearCache*
+:ExplClearCache         Delete every cached explanation.
+
+                                                            *expl-checkhealth*
+:checkhealth expl       Check Neovim's version, that `claude` is installed and
+                        signed in, the treesitter parsers, and the cache.
+
+==============================================================================
+5. CONFIGURATION                                                 *expl-config*
+
+Pass options to `require("expl").setup()`, or as `opts` with lazy.nvim. These
+are the defaults: >lua
+    require("expl").setup({
+      cmd = "claude",       -- path to the Claude Code CLI
+      model = "sonnet",     -- any `claude --model` value; nil = CLI default
+      context_lines = 40,   -- lines of context sent on each side
+      width = 72,
+      max_height = 30,
+      border = "rounded",   -- see 'winborder' for the accepted values
+      cache = true,         -- reuse answers for identical code
+      highlights = { ... }, -- see |expl-highlights|
+      system_prompt = [[ ... ]],
+    })
+<
+                                                             *expl-config-cmd*
+cmd ~
+    The Claude Code executable. Use a full path if it isn't on your `PATH`.
+
+                                                           *expl-config-model*
+model ~
+    The model to use, such as `"sonnet"`, `"haiku"` or `"opus"`. `nil` uses
+    whatever Claude Code defaults to. A fast model keeps the popup snappy.
+
+                                                   *expl-config-context_lines*
+context_lines ~
+    How many lines before and after the selection to send along. Claude uses
+    them to understand the code, but only explains the selection.
+
+                                                           *expl-config-cache*
+cache ~
+    When true, finished explanations are saved in `stdpath("cache")/expl` and
+    shown again instantly for identical code. See |expl-cache|.
+
+                                                   *expl-config-system_prompt*
+system_prompt ~
+    The instructions that set the style of every answer. The default asks for
+    one summary sentence, a few short bullets and an optional "Note:" line,
+    in under about 150 words. Changing it also changes the cache key, so old
+    answers aren't reused.
+
+==============================================================================
+6. HIGHLIGHTS                                                *expl-highlights*
+
+The popup uses these groups. Each defaults to a link to your colorscheme's
+float colors.
+
+  *ExplNormal*    Text and background        (default: |hl-NormalFloat|)
+  *ExplBorder*    Border                     (default: |hl-FloatBorder|)
+  *ExplTitle*     " expl " title             (default: |hl-FloatTitle|)
+  *ExplFooter*    Key hints in the footer    (default: |hl-FloatFooter|)
+
+Set them with the `highlights` option. A group you set replaces its default
+completely: >lua
+    highlights = {
+      ExplNormal = { fg = "#ededed", bg = "#1f1f1f" },
+      ExplBorder = { fg = "#52a8ff", bg = "#1f1f1f" },
+    },
+<
+They're reapplied after every |ColorScheme| event, so switching themes doesn't
+reset them.
+
+==============================================================================
+7. LUA API                                                          *expl-api*
+
+require("expl").explain()                                     *expl.explain()*
+    Explain the current visual selection, or the last one when called
+    outside visual mode.
+
+require("expl").follow_up()                                 *expl.follow_up()*
+    Ask a follow-up question in the open popup. Same as `f`.
+
+require("expl").refresh()                                     *expl.refresh()*
+    Ask again without the cache. Same as `r`.
+
+require("expl").close()                                         *expl.close()*
+    Close the popup and stop any answer in progress.
+
+require("expl").clear_cache()                             *expl.clear_cache()*
+    Delete every cached explanation. Same as |:ExplClearCache|.
+
+==============================================================================
+8. HOW IT WORKS                                                     *expl-how*
+
+expl runs `claude -p` in the background, so the editor never freezes. It
+sends the file name, filetype, line numbers, the surrounding lines and the
+selection. The answer streams back as JSON events and is added to the popup
+piece by piece.
+
+Claude gets no tools, MCP servers or Claude Code settings. It runs from
+Neovim's cache folder rather than your project, so it doesn't read project
+files such as `CLAUDE.md`.
+
+                                                                  *expl-cache*
+The cache key is a hash of the selected code, the filetype, the model and the
+system prompt. The surrounding lines aren't part of it, so the same code
+gets the same answer even after nearby edits. Errors, cancelled answers and
+follow-ups are never cached. Press `r` to replace a cached answer.
+
+                                                              *expl-follow-up*
+Follow-ups continue the conversation with `claude --resume`. For this, Claude
+Code saves the popup's session while it's open. expl deletes those session
+files when the popup closes, or when Neovim quits, so they don't pile up in
+your `claude --resume` history.
+
+If the explanation came from the cache, there's no session yet. The first
+follow-up then starts one that includes the original code and the cached
+answer.
+
+ vim:tw=78:ts=8:ft=help:norl:
